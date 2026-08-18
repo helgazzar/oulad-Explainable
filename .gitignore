@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# OULAD dataset files  too large for GitHub
+data/*
+!data/README.md
