@@ -34,3 +34,10 @@ Analytics dataset. *Scientific Data*, 4, 170171.
 
 This project is supported by a University Research Grant (URG FY2027) from 
 the College of Applied Science and Technology, Illinois State University.
+
+## To use
+
+1. Create a venv using `python -m venv .venv`
+2. Run `.\.venv\scripts\activate.ps1`
+3. Run `pip install requirements -m`
+4. Test `pipeline.py`
