@@ -24,10 +24,11 @@ from sklearn.model_selection import train_test_split
 @dataclass(frozen=True)
 class PreprocessConfig:
 
-    data_dirs: tuple[Path, ...] = (Path(__file__).resolve().parent / "data",)
+    # data/ sits next to src/, so resolve up one level from this file
+    data_dirs: tuple[Path, ...] = (Path(__file__).resolve().parent.parent / "data",)
 
     # day of the module presentation at which prediction is made (leakage boundary)
-    cutoff_day: int = 30
+    cutoff_day: int = 32
 
     # whether Withdrawn students count as the positive (at-risk) class
     include_withdrawn: bool = True
