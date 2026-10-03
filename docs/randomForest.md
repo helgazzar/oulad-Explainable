@@ -19,7 +19,7 @@ Grid searched with 3-fold CV, scored on roc_auc (18 combos, 54 fits):
 | Parameter | Values | What it controls |
 |---|---|---|
 | `n_estimators` | 50, 200, 500 | Number of trees |
-| `max_depth` | 5, 15, 20, 30, 40 | Max splits per tree |
+| `max_depth` | 5, 15, 20, 30 | Max splits per tree |
 | `min_samples_split` | 2, 10 | Min rows a node needs before it splits |
 
 The grid ranges are the ones listed in the research doc. After the search, the best estimator is cross validated with 5 folds on the train split and then scored once on the 20% hold-out.
