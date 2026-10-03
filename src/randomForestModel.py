@@ -11,27 +11,32 @@ NAME = "random_forest"
 ### grid params
 PARAM_GRID: dict[str, list] = {
     "n_estimators": [50, 200, 500],  # number of trees
-    "max_depth": [5, 15, 20, 30, 40],        # max splits per tree
+    "max_depth": [5, 15, 20, 30],    # max splits per tree
     "min_samples_split": [2, 10],    # min rows needed before a node splits
 }
 
 
 ### random forest set up
 def build(cfg: models.ModelConfig) -> RandomForestClassifier:
-    """Raw Random Forest carrying the seed and parallelism from cfg."""
+    """Raw Random Forest carrying the seed from cfg."""
     # class_weight = 'balanced' weights the at-risk class up so the forest
     # doesn't just predict pass for everyone
     return RandomForestClassifier(
         random_state=cfg.random_state,
-        n_jobs=cfg.n_jobs,
+        # n_jobs = 1 because GridSearch / cross_validate / permutation_importance already run
+        # folds in parallel with cfg.n_jobs
+        n_jobs=1,
         class_weight="balanced",
     )
 
 
 ### train
 # tune -> cross validate -> evaluate -> importance, pass data in to skip re-running the pipeline
-def run(cfg: models.ModelConfig = models.ModelConfig(), data: dict | None = None) -> dict:
+def run(cfg: models.ModelConfig | None = None, data: dict | None = None) -> dict:
     """Tune, evaluate, and rank features for the random forest."""
+    # build cfg per call
+    if cfg is None:
+        cfg = models.ModelConfig()
     if data is None:
         data = models.load_data(cfg)
 
@@ -67,5 +72,5 @@ if __name__ == "__main__":
     cfg = models.ModelConfig()
     data = models.load_data(cfg)
     result = run(cfg, data)
-    models.print_results(result)
+    models.print_results(result, cfg)
     plots.plot_all([result], data, cfg)
