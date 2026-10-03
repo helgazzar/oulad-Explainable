@@ -1,0 +1,21 @@
+feature,importance
+submission_rate,0.32580662
+mean_score,0.14661688
+pct_banked,0.05062422
+avg_days_before_due,0.038760167
+num_of_prev_attempts,0.03719706
+weighted_score,0.031190626
+active_days,0.029907659
+highest_education_ordinal,0.024932003
+clicks_quiz,0.019136777
+clicks_page,0.017120408
+clicks_externalquiz,0.012837299
+gender_flag,0.012339359
+imd_band_ordinal,0.01177952
+studied_credits,0.010975653
+clicks_oucontent,0.010343412
+clicks_dataplus,0.010320084
+region_South East Region,0.0099055795
+module_presentation_length,0.008649001
+clicks_ouelluminate,0.008574674
+clicks_ouwiki,0.008393803
