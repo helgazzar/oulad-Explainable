@@ -24,14 +24,16 @@ PARAM_GRID: dict[str, list] = {
 
 
 ### xgboost set up
-def build(cfg: models.ModelConfig) -> XGBClassifier:
+def build(cfg: models.ModelConfig, scale_pos_weight: float = 1.0) -> XGBClassifier:
     """Raw XGBoost classifier carrying the seed and parallelism from cfg."""
     # n_estimators = max boosting rounds, set high and let early stopping pick the best count
     # tree_method = 'hist' bins the features first, faster on 32k rows
     # eval_metric = logloss for binary results, also what early stopping watches
+    # scale_pos_weight = negatives / positives
     return XGBClassifier(
         n_estimators=1000,
         early_stopping_rounds=EARLY_STOPPING_ROUNDS,
+        scale_pos_weight=scale_pos_weight,
         tree_method="hist",
         eval_metric="logloss",
         random_state=cfg.random_state,
@@ -39,10 +41,18 @@ def build(cfg: models.ModelConfig) -> XGBClassifier:
     )
 
 
+def pos_weight(y) -> float:
+    """Ratio of negative to positive examples, the value for scale_pos_weight."""
+    return float((y == 0).sum() / (y == 1).sum())
+
+
 ### train
-# tune -> cross validate -> evaluate -> importance, pass data in to skip re-running the pipeline
-def run(cfg: models.ModelConfig = models.ModelConfig(), data: dict | None = None) -> dict:
+# tune -> refit on full train -> cross validate -> evaluate -> importance, pass data in to skip re-running the pipeline
+def run(cfg: models.ModelConfig | None = None, data: dict | None = None) -> dict:
     """Tune, evaluate, and rank features for xgboost."""
+    # build cfg per call
+    if cfg is None:
+        cfg = models.ModelConfig()
     if data is None:
         data = models.load_data(cfg)
 
@@ -54,12 +64,23 @@ def run(cfg: models.ModelConfig = models.ModelConfig(), data: dict | None = None
     # every fit watches the same val slice, verbose = False stops the per-round print
     fit_params = {"eval_set": [(X_val, y_val)], "verbose": False}
 
-    search = models.tune(build(cfg), PARAM_GRID, X_fit, y_fit, cfg, **fit_params)
-    # create model based on the 'best' parameters found
-    model = search.best_estimator_
+    # from the full train split, the same labels the final model and the forest are fit on
+    spw = pos_weight(data["y_train"])
 
-    # call cross_validate using the tuned model to find stats + std. dev
-    cv_metrics = models.cross_validate_model(model, X_fit, y_fit, cfg, **fit_params)
+    # tuning only: picks the grid params and, through early stopping, the tree count
+    search = models.tune(build(cfg, spw), PARAM_GRID, X_fit, y_fit, cfg, **fit_params)
+    # best_iteration = round early stopping landed on, +1 for the tree count
+    n_estimators = search.best_estimator_.best_iteration + 1
+
+    # refit on the full train split with the tree count fixed and early stopping off,
+    # so xgboost sees the same rows as the random forest
+    model = build(cfg, spw).set_params(
+        **search.best_params_, n_estimators=n_estimators, early_stopping_rounds=None,
+    )
+    model.fit(data["X_train"], data["y_train"], verbose=False)
+
+    # call cross_validate using the final model to find stats + std. dev on the full train split
+    cv_metrics = models.cross_validate_model(model, data["X_train"], data["y_train"], cfg)
 
     # score on the hold-out and build both importance tables
     metrics = models.evaluate(model, data["X_test"], data["y_test"], NAME)
@@ -73,8 +94,7 @@ def run(cfg: models.ModelConfig = models.ModelConfig(), data: dict | None = None
     return {
         "name": NAME,
         "model": model,
-        # best_iteration = round early stopping landed on, +1 for the tree count
-        "best_params": {**search.best_params_, "n_estimators": model.best_iteration + 1},
+        "best_params": {**search.best_params_, "n_estimators": n_estimators, "scale_pos_weight": round(spw, 3)},
         "cv_score": search.best_score_,
         "cv_metrics": cv_metrics,
         "metrics": metrics,
@@ -87,5 +107,5 @@ if __name__ == "__main__":
     cfg = models.ModelConfig()
     data = models.load_data(cfg)
     result = run(cfg, data)
-    models.print_results(result)
+    models.print_results(result, cfg)
     plots.plot_all([result], data, cfg)
