@@ -40,4 +40,10 @@ the College of Applied Science and Technology, Illinois State University.
 1. Create a venv using `python -m venv .venv`
 2. Run `.\.venv\scripts\activate.ps1`
 3. Run `pip install requirements -m`
-4. Test `pipeline.py`
+4. For full test suite, run `python ./src/main.py`
+4. Individual models can be called with their respective names:
+`python randomForestModel.py`
+`python xgboostModel.py`
+`python logisticModel`
+
+
