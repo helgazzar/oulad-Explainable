@@ -126,11 +126,17 @@ def evaluate(model, X_test, y_test, name: str) -> dict[str, float]:
 
 
 ### feature importance
-# two rankings per model, the model's own (gini for RF, gain for XGB)
+# two rankings per model, the model's own (gini for RF, gain for XGB, |coefficient| for LR)
 # and permutation importance which works the same for any model
 def native_importance(model, names: list[str], cfg: ModelConfig) -> pd.DataFrame:
-    """Top features by the model's built-in feature_importances_."""
-    out = pd.DataFrame({"feature": names, "importance": model.feature_importances_})
+    """Top features by the model's built-in feature_importances_, or coef_ for linear models."""
+    if hasattr(model, "feature_importances_"):
+        out = pd.DataFrame({"feature": names, "importance": model.feature_importances_})
+    else:
+        # features are standardized, so coefficient size is comparable across columns.
+        # rank by size, keep the sign: positive = pushes toward at-risk
+        coef = model.coef_[0]
+        out = pd.DataFrame({"feature": names, "importance": abs(coef), "coefficient": coef})
     # sort high to low, keep the top n
     return out.sort_values("importance", ascending=False).head(cfg.top_n_features).reset_index(drop=True)
 
@@ -162,12 +168,13 @@ def save_table(table: pd.DataFrame, filename: str, cfg: ModelConfig) -> Path:
     table.to_csv(path, index=False)
     return path
 
-def print_results(result: dict) -> None:
+def print_results(result: dict, cfg: ModelConfig) -> None:
     """Print best params, hold-out metrics, and top features for one model."""
     metrics = result["metrics"]
     print(f"\n{result['name']}")
     print("Best params:", result["best_params"])
-    print(f"Best CV roc_auc: {result['cv_score']*100:.2f}%")
+    # grid search picks by cfg.scoring, so label the score with it
+    print(f"Best CV {cfg.scoring}: {result['cv_score']*100:.2f}%")
     # cross validation on the tuned model, mean (+/- std) per metric
     for row in result["cv_metrics"].itertuples():
         print(f"CV {row.metric}: {row.mean*100:.2f}% (+/- {row.std*100:.2f}%)")
