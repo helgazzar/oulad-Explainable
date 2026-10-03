@@ -20,7 +20,8 @@ Prints the split shapes and the at-risk rate for train and test. Everything else
 | Setting | Default | What it does |
 |---|---|---|
 | `data_dirs` | `../data` | Where the CSVs are searched for, in order |
-| `cutoff_day` | 32 | Day of the presentation the prediction is made on. Nothing after this day is used |
+| `cutoff_day` | 28 | Day of the presentation the prediction is made on (end of week 4). Nothing after this day is used. `main.py` runs days 28, 56 and 84 (weeks 4, 8, 12) |
+| `drop_withdrawn_before_cutoff` | True | Drop students who unregistered on or before the cutoff from the population |
 | `include_withdrawn` | True | Whether `Withdrawn` counts as at-risk alongside `Fail` |
 | `test_size` | 0.20 | Hold-out fraction, stratified on the target |
 | `random_state` | 42 | Seed for the split and the imputer |
@@ -35,11 +36,13 @@ X_train, X_test, y_train, y_test, preprocessor, feature_columns = run(cfg)
 
 ## The leakage rule
 
-`cutoff_day` is the one rule everything else follows. The model is meant to flag a student on day 32 using only what an instructor could see on day 32, so:
+`cutoff_day` is the one rule everything else follows. The model is meant to flag a student on the cutoff day using only what an instructor could see on that day, so:
 
 - clicks with `date > cutoff_day` are dropped before aggregation
 - assessments with a due date after the cutoff are dropped, and so are submissions after it
 - `date_unregistration` only counts if it is on or before the cutoff
+- students who unregistered on or before the cutoff are dropped from the population. They have already left, so there is nothing to predict, and 99.8% of them end as `Withdrawn` (5,047 of 5,055 at week 4), so keeping them lets the model read the label off their unregistration date
+- `unregistered_before_cutoff` is still computed (the filter uses it) but is not a model feature
 - `final_result` is used to build `y` and is not a feature
 
 ## What each table becomes
@@ -49,20 +52,20 @@ Each CSV has a `load_*` function (just `read_csv`) and a `process_*` function th
 | Table | Features produced |
 |---|---|
 | `courses.csv` | `module_presentation_length` |
-| `studentRegistration.csv` | `registration_lead_days`, `registered_late`, `unregistered_before_cutoff` |
+| `studentRegistration.csv` | `registration_lead_days`, `registered_late` (plus `unregistered_before_cutoff`, used only to filter the population) |
 | `studentInfo.csv` | `imd_band_ordinal`, `age_band_ordinal`, `highest_education_ordinal`, `disability_flag`, `gender_flag`, `num_of_prev_attempts`, `studied_credits`, `region` (kept as a string), `final_result` (target only) |
 | `vle.csv` | lookup of `id_site` to `activity_type`, merged into the click data |
 | `studentVle.csv` | `total_clicks`, `active_days`, `distinct_sites`, `avg_clicks_per_active_day`, `engagement_score`, one `clicks_<activity_type>` column per activity type |
 | `assessments.csv` | cutoff-filtered list of due assessments; `n_expected_assessments` per presentation |
 | `studentAssessment.csv` | `n_submitted`, `mean_score`, `weighted_score`, `avg_days_before_due`, `pct_banked`, `submission_rate` |
 
-`build_feature_table()` left-merges all of these onto `studentInfo` so a student with no clicks or submissions still gets a row, then adds `progress_fraction` (cutoff day divided by presentation length). Click and submission counts that are missing after the merge are set to 0, because no rows means no activity, not unknown activity.
+`build_feature_table()` left-merges all of these onto `studentInfo` so a student with no clicks or submissions still gets a row, then drops students who had already unregistered by the cutoff. Click and submission counts that are missing after the merge are set to 0, because no rows means no activity, not unknown activity.
 
 `studentVle.csv` is 10.6M rows, so it is read in chunks and filtered on the cutoff as it goes.
 
 ## Target
 
-`build_target()` makes `at_risk`: 1 for `Fail` (and `Withdrawn` if `include_withdrawn`), 0 for `Pass` and `Distinction`. With withdrawn included the classes are close to balanced (about 47% at-risk).
+`build_target()` makes `at_risk`: 1 for `Fail` (and `Withdrawn` if `include_withdrawn`), 0 for `Pass` and `Distinction`. With withdrawn included and already-withdrawn students dropped, the at-risk rate is 44.1% at week 4, 42.0% at week 8 and 40.2% at week 12. The population shrinks as the cutoff moves later (27,538 / 26,522 / 25,724 of 32,593 students).
 
 ## sklearn preprocessing
 
@@ -78,4 +81,4 @@ Each CSV has a `load_*` function (just `read_csv`) and a `process_*` function th
 ## ex Note
 
 - The `IterativeImputer` is the part most likely to change results between sklearn versions since it is still marked experimental.
-- `unregistered_before_cutoff` is the strongest single feature in both models. Next steps to test are dropping this feature. 
+- `unregistered_before_cutoff` was the strongest single feature in both models before it was removed.
