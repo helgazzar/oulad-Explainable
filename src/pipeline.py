@@ -28,7 +28,11 @@ class PreprocessConfig:
     data_dirs: tuple[Path, ...] = (Path(__file__).resolve().parent.parent / "data",)
 
     # day of the module presentation at which prediction is made (leakage boundary)
-    cutoff_day: int = 32
+    # 28 = end of week 4, main.py also runs weeks 8 and 12 (days 56 and 84)
+    cutoff_day: int = 28
+
+    # drop students who unregistered on or before the cutoff
+    drop_withdrawn_before_cutoff: bool = True
 
     # whether Withdrawn students count as the positive (at-risk) class
     include_withdrawn: bool = True
@@ -48,9 +52,7 @@ class PreprocessConfig:
 
 ### courses processing ### 
 # courses.csv holds one row per (code_module, code_presentation)
-# giving the calendar length of that presentation. Used later to turn the fixed
-# cutoff_day into a progress fraction that's comparable across presentations of
-# different lengths.
+# giving the calendar length of that presentation.
 def load_courses(cfg: PreprocessConfig) -> pd.DataFrame:
     """Read courses.csv."""
     return pd.read_csv(_resolve("courses.csv", cfg))
@@ -295,12 +297,9 @@ def build_feature_table(cfg: PreprocessConfig) -> pd.DataFrame:
     features = features.merge(clickstream, on=keys, how="left")
     features = features.merge(submissions, on=keys, how="left")
 
-    # progress_fraction: how far into the presentation the cutoff sits, so a
-    # fixed cutoff_day is comparable across presentations of different lengths
-    features["progress_fraction"] = _safe_div(
-        pd.Series(cfg.cutoff_day, index=features.index).astype("float32"),
-        features["module_presentation_length"],
-    )
+    # students already gone by the cutoff are outside the prediction population
+    if cfg.drop_withdrawn_before_cutoff:
+        features = features[features["unregistered_before_cutoff"] != 1].reset_index(drop=True)
 
     # process rows with no recorded clicks/submissions before the cutoff as 0.0
     click_cols = [c for c in clickstream.columns if c not in keys]
@@ -326,12 +325,12 @@ def build_target(features: pd.DataFrame, cfg: PreprocessConfig) -> pd.Series:
 # numeric imputation + scaling and categorical imputation +
 # one-hot encoding, orchestrated by a single ColumnTransformer. 
 
-# fixed numeric features present regardless of which activity types appear before the cutoff
+# fixed numeric features present regardless of which activity types appear before the cutoff.
 NUMERIC_FEATURES: tuple[str, ...] = (
     "imd_band_ordinal", "age_band_ordinal", "highest_education_ordinal",
     "disability_flag", "gender_flag", "num_of_prev_attempts", "studied_credits",
-    "module_presentation_length", "progress_fraction",
-    "registration_lead_days", "registered_late", "unregistered_before_cutoff",
+    "module_presentation_length",
+    "registration_lead_days", "registered_late",
     "total_clicks", "active_days", "distinct_sites", "avg_clicks_per_active_day", "engagement_score",
     "n_submitted", "mean_score", "weighted_score", "avg_days_before_due", "pct_banked", "submission_rate",
 )
@@ -360,9 +359,12 @@ def build_preprocessing_pipeline(
 ### Orchestrator ###
 # tie feature assembly, target construction, the train/test split,
 # and the sklearn preprocessing pipeline together into a single function.
-def run(cfg: PreprocessConfig = PreprocessConfig()):
+def run(cfg: PreprocessConfig | None = None):
     """Build features, split, and fit/apply the preprocessing pipeline. Returns
     (X_train, X_test, y_train, y_test, fitted_preprocessor, feature_columns)."""
+    # build cfg per call
+    if cfg is None:
+        cfg = PreprocessConfig()
     features = build_feature_table(cfg)
     y = build_target(features, cfg)
 
