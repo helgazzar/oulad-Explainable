@@ -19,7 +19,7 @@ def _resolve(filename: str, cfg: "pipeline.PreprocessConfig") -> Path:
         # return on the first match
         if candidate.exists():
             return candidate
-    # fail an empty frame
+    # no search directory has the file, stop here
     raise FileNotFoundError(f"{filename} not found in {[str(d) for d in cfg.data_dirs]}")
 
 
@@ -30,10 +30,11 @@ def _ordinal(series: pd.Series, mapping: dict[str, int]) -> pd.Series:
 
 
 def _safe_div(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
-    """Element-wise division that yields 0.0 instead of inf/NaN on a zero denominator."""
+    """Element-wise division that yields 0.0 on a zero denominator. A missing
+    numerator stays NaN so the imputer handles it, missing is not the same as zero."""
     # np.where evaluates the whole vector at once rather than per row
     return pd.Series(
         np.where(denominator > 0, numerator / denominator.replace(0, np.nan), 0.0),
         index=numerator.index,
-    ).fillna(0.0).astype("float32")
+    ).astype("float32")
 
