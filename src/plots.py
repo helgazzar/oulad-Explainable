@@ -1,6 +1,8 @@
 # plots for the model results, confusion matrix heat map + roc curve
 from __future__ import annotations
 
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sn
 
@@ -54,7 +56,10 @@ def roc_plot(results: list[dict], data: dict, cfg: models.ModelConfig) -> None:
     plt.xlabel("False Positive Rate")
     plt.legend(loc="lower right")
     plt.tight_layout()
-    plt.savefig(cfg.results_dir / "roc_curve.png")
+    # shared file only for a multi-model run, a single model file run
+    # gets its own name so it doesn't overwrite the comparison plot
+    filename = "roc_curve.png" if len(results) > 1 else f"{results[0]['name']}_roc_curve.png"
+    plt.savefig(cfg.results_dir / filename)
 
 
 ### precision / recall vs threshold
@@ -83,7 +88,7 @@ def precision_recall_plot(result: dict, data: dict, cfg: models.ModelConfig) -> 
 
 
 ### all plots
-# heat map + precision/recall per model, one shared roc curve, then show
+# heat map + precision/recall per model, one shared roc curve, saved to results/
 def plot_all(results: list[dict], data: dict, cfg: models.ModelConfig) -> None:
     """Draw and save every figure for the given results."""
     cfg.results_dir.mkdir(parents=True, exist_ok=True)
@@ -91,4 +96,5 @@ def plot_all(results: list[dict], data: dict, cfg: models.ModelConfig) -> None:
         confusion_heatmap(result, data, cfg)
         precision_recall_plot(result, data, cfg)
     roc_plot(results, data, cfg)
-    plt.show()
+    # close instead of show so plots don't pop up after run
+    plt.close("all")
