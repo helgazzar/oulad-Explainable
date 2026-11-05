@@ -40,12 +40,13 @@ def run(cfg: models.ModelConfig | None = None, data: dict | None = None) -> dict
     if data is None:
         data = models.load_data(cfg)
 
-    search = models.tune(build(cfg), PARAM_GRID, data["X_train"], data["y_train"], cfg)
+    #student id grouped
+    search = models.tune(build(cfg), PARAM_GRID, data["X_train"], data["y_train"], data["groups_train"], cfg)
     # create model based on the 'best' parameters found
     model = search.best_estimator_
 
     # call cross_validate using the tuned model to find stats + std. dev
-    cv_metrics = models.cross_validate_model(model, data["X_train"], data["y_train"], cfg)
+    cv_metrics = models.cross_validate_model(model, data["X_train"], data["y_train"], data["groups_train"], cfg)
 
     # score on the hold-out and build both importance tables
     metrics = models.evaluate(model, data["X_test"], data["y_test"], NAME)

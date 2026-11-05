@@ -2,10 +2,10 @@
 # (file is not named xgboost.py so it doesn't shadow the xgboost package)
 from __future__ import annotations
 
-from sklearn.model_selection import train_test_split
 from xgboost import XGBClassifier
 
 import models
+import pipeline
 import plots
 
 NAME = "xgboost"
@@ -57,10 +57,13 @@ def run(cfg: models.ModelConfig | None = None, data: dict | None = None) -> dict
         data = models.load_data(cfg)
 
     # carve a validation slice off train for early stopping, test set stays untouched
-    X_fit, X_val, y_fit, y_val = train_test_split(
-        data["X_train"], data["y_train"],
-        test_size=VAL_SIZE, random_state=cfg.random_state, stratify=data["y_train"],
+    # grouped by student so the val slice shares no student with the fit rows
+    fit_idx, val_idx = pipeline.grouped_holdout(
+        data["y_train"], data["groups_train"], VAL_SIZE, cfg.random_state,
     )
+    X_fit, X_val = data["X_train"][fit_idx], data["X_train"][val_idx]
+    y_fit, y_val = data["y_train"].iloc[fit_idx], data["y_train"].iloc[val_idx]
+    groups_fit = data["groups_train"][fit_idx]
     # every fit watches the same val slice, verbose = False stops the per-round print
     fit_params = {"eval_set": [(X_val, y_val)], "verbose": False}
 
@@ -68,7 +71,7 @@ def run(cfg: models.ModelConfig | None = None, data: dict | None = None) -> dict
     spw = pos_weight(data["y_train"])
 
     # tuning only: picks the grid params and, through early stopping, the tree count
-    search = models.tune(build(cfg, spw), PARAM_GRID, X_fit, y_fit, cfg, **fit_params)
+    search = models.tune(build(cfg, spw), PARAM_GRID, X_fit, y_fit, groups_fit, cfg, **fit_params)
     # best_iteration = round early stopping landed on, +1 for the tree count
     n_estimators = search.best_estimator_.best_iteration + 1
 
@@ -80,7 +83,7 @@ def run(cfg: models.ModelConfig | None = None, data: dict | None = None) -> dict
     model.fit(data["X_train"], data["y_train"], verbose=False)
 
     # call cross_validate using the final model to find stats + std. dev on the full train split
-    cv_metrics = models.cross_validate_model(model, data["X_train"], data["y_train"], cfg)
+    cv_metrics = models.cross_validate_model(model, data["X_train"], data["y_train"], data["groups_train"], cfg)
 
     # score on the hold-out and build both importance tables
     metrics = models.evaluate(model, data["X_test"], data["y_test"], NAME)

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
 # pandas for data handling
 import pandas as pd
 # scikit-learn column-wise transformer orchestration
@@ -15,8 +16,8 @@ from sklearn.impute import IterativeImputer, SimpleImputer
 from sklearn.pipeline import Pipeline
 # encoders and scalers for the final feature matrix
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
-# stratified split preserves class balance in train/test
-from sklearn.model_selection import train_test_split
+# grouped stratified split keeps each student on one side of train/test
+from sklearn.model_selection import StratifiedGroupKFold, train_test_split
 
 
 # Use to set default values for the Preprocessor class.
@@ -356,6 +357,15 @@ def build_preprocessing_pipeline(
     ])
 
 
+### Grouped split ###
+# students can appear in several presentations, so split by id_student, not by row.
+def grouped_holdout(y, groups, test_size: float, random_state: int):
+    """(train_idx, test_idx) positions: no group on both sides, class stratified."""
+    # one fold of a shuffled StratifiedGroupKFold is ~test_size of the rows
+    splitter = StratifiedGroupKFold(n_splits=round(1 / test_size), shuffle=True, random_state=random_state)
+    return next(splitter.split(np.zeros(len(y)), y, groups))
+
+
 ### Orchestrator ###
 # tie feature assembly, target construction, the train/test split,
 # and the sklearn preprocessing pipeline together into a single function.
@@ -375,10 +385,12 @@ def run(cfg: PreprocessConfig | None = None):
     feature_columns = numeric_features + list(CATEGORICAL_FEATURES)
     X = features[feature_columns]
 
-    # stratified split preserves the at-risk class ratio
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=cfg.test_size, random_state=cfg.random_state, stratify=y,
-    )
+    # grouped + stratified split 
+    groups = features["id_student"]
+    train_idx, test_idx = grouped_holdout(y, groups, cfg.test_size, cfg.random_state)
+    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+    groups_train = groups.iloc[train_idx].to_numpy()
 
     # build pipeline
     preprocessor = build_preprocessing_pipeline(numeric_features, CATEGORICAL_FEATURES, random_state=cfg.random_state)
@@ -386,10 +398,10 @@ def run(cfg: PreprocessConfig | None = None):
     X_train_t = preprocessor.fit_transform(X_train)
     X_test_t = preprocessor.transform(X_test)
 
-    return X_train_t, X_test_t, y_train, y_test, preprocessor, feature_columns
+    return X_train_t, X_test_t, y_train, y_test, preprocessor, feature_columns, groups_train
 
 
 if __name__ == "__main__":
-    X_train, X_test, y_train, y_test, preprocessor, feature_columns = run()
+    X_train, X_test, y_train, y_test, preprocessor, feature_columns, groups_train = run()
     print(f"train: {X_train.shape}, test: {X_test.shape}")
     print(f"at-risk rate - train: {y_train.mean():.3f}, test: {y_test.mean():.3f}")

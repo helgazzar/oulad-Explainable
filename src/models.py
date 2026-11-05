@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 from scipy import sparse
 
-from sklearn.model_selection import GridSearchCV, StratifiedKFold, cross_validate
+from sklearn.model_selection import GridSearchCV, StratifiedGroupKFold, cross_validate
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 
@@ -53,7 +53,7 @@ class ModelConfig:
 # run the pipeline once, both model files train on the same split
 def load_data(cfg: ModelConfig) -> dict:
     """Preprocessed train/test split plus feature names, as one dict."""
-    X_train, X_test, y_train, y_test, preprocessor, _ = pipeline.run(cfg.preprocess)
+    X_train, X_test, y_train, y_test, preprocessor, _, groups_train = pipeline.run(cfg.preprocess)
 
     # OneHotEncoder can return a sparse matrix, permutation_importance needs dense
     return {
@@ -61,6 +61,8 @@ def load_data(cfg: ModelConfig) -> dict:
         "X_test": _densify(X_test),
         "y_train": y_train,
         "y_test": y_test,
+        # id_student per train row
+        "groups_train": groups_train,
         "feature_names": feature_names(preprocessor),
     }
 
@@ -75,18 +77,20 @@ def _densify(X):
 
 ### grid search
 # fit on x_train only, test set stays untouched until evaluate()
-def tune(estimator, param_grid: dict[str, list], X_train, y_train, cfg: ModelConfig, **fit_params) -> GridSearchCV:
+def tune(estimator, param_grid: dict[str, list], X_train, y_train, groups, cfg: ModelConfig, **fit_params) -> GridSearchCV:
     """GridSearch the estimator, returns the fitted search. fit_params go to estimator.fit()."""
+    # folds are grouped by student so no student is in both the train and test splits
+    cv = StratifiedGroupKFold(n_splits=cfg.cv_folds, shuffle=True, random_state=cfg.random_state)
     # refit = True retrains on the full train set using the best params found
     search = GridSearchCV(
         estimator,
         param_grid,
         scoring=cfg.scoring,
-        cv=cfg.cv_folds,
+        cv=cv,
         n_jobs=cfg.n_jobs,
         refit=True,
     )
-    search.fit(X_train, y_train, **fit_params)
+    search.fit(X_train, y_train, groups=groups, **fit_params)
     return search
 
 
@@ -94,11 +98,10 @@ def tune(estimator, param_grid: dict[str, list], X_train, y_train, cfg: ModelCon
 # call cross_validate using the tuned model to find stats + std. dev
 CV_METRICS = ["accuracy", "precision", "recall", "f1", "roc_auc"]
 
-def cross_validate_model(model, X_train, y_train, cfg: ModelConfig, **fit_params) -> pd.DataFrame:
+def cross_validate_model(model, X_train, y_train, groups, cfg: ModelConfig, **fit_params) -> pd.DataFrame:
     """Mean and std of each metric across cfg.final_cv_folds on the train split."""
-    # shuffle = True so folds aren't in file order, stratify keeps the class ratio per fold
-    kfold = StratifiedKFold(n_splits=cfg.final_cv_folds, shuffle=True, random_state=cfg.random_state)
-    results = cross_validate(model, X_train, y_train, cv=kfold, scoring=CV_METRICS,
+    kfold = StratifiedGroupKFold(n_splits=cfg.final_cv_folds, shuffle=True, random_state=cfg.random_state)
+    results = cross_validate(model, X_train, y_train, groups=groups, cv=kfold, scoring=CV_METRICS,
                              n_jobs=cfg.n_jobs, params=fit_params)
     return pd.DataFrame({
         "metric": CV_METRICS,
@@ -134,7 +137,7 @@ def native_importance(model, names: list[str], cfg: ModelConfig) -> pd.DataFrame
         out = pd.DataFrame({"feature": names, "importance": model.feature_importances_})
     else:
         # features are standardized, so coefficient size is comparable across columns.
-        # rank by size, keep the sign: positive = pushes toward at-risk
+        # rank by size, while keeping the sign: positive = pushes toward at-risk
         coef = model.coef_[0]
         out = pd.DataFrame({"feature": names, "importance": abs(coef), "coefficient": coef})
     # sort high to low, keep the top n
