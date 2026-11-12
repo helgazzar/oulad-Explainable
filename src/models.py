@@ -64,6 +64,8 @@ def load_data(cfg: ModelConfig) -> dict:
         # id_student per train row
         "groups_train": groups_train,
         "feature_names": feature_names(preprocessor),
+        # fitted on train, used to undo the scaling for readable SHAP plots
+        "preprocessor": preprocessor,
     }
 
 def feature_names(preprocessor) -> list[str]:
