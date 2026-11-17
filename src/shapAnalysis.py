@@ -7,8 +7,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import shap
+import xgboost
 from sklearn.model_selection import train_test_split
+import shap
 
 import models
 
@@ -71,7 +72,7 @@ def build_explainer(result: dict, data: dict, cfg: models.ModelConfig):
 
 
 def explain(result: dict, data: dict, cfg: models.ModelConfig) -> tuple[shap.Explanation, np.ndarray]:
-    """SHAP values for the at-risk class on hold-out rows, plus the X_test positions they belong to."""
+    """SHAP values for the at-risk class on hold-out rows + the X_test positions they belong to."""
     rows = explain_rows(result, data, cfg)
     X = data["X_test"][rows]
     raw = build_explainer(result, data, cfg)(X)

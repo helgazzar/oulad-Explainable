@@ -10,6 +10,7 @@ import models
 import plots
 import randomForestModel
 import xgboostModel
+import shapAnalysis
 
 # weeks into the presentation the prediction is made at, cutoff_day = week * 7
 CUTOFF_WEEKS: tuple[int, ...] = (4, 8, 12)
@@ -47,6 +48,7 @@ def run_cutoff(cfg: models.ModelConfig, week: int) -> pd.DataFrame:
 
     # confusion matrix + precision/recall per model, one roc curve with every model
     plots.plot_all(results, data, cfg)
+    shapAnalysis.run_all(results, data, cfg)
     return metrics
 
 
